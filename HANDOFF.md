@@ -94,25 +94,24 @@ Enums: `membership_role`, `account_type`, `transaction_kind`, `transaction_statu
 
 ---
 
-## 5. PRÓXIMOS PASSOS (o que falta na Fase 1)
+## 5. PROGRESSO DA FASE 1 (✅ implementado)
 
-Ainda **NÃO** foram criados (pendentes nesta sessão):
+Frontend e backend do MVP núcleo já construídos e com **build passando** (`npm run build`):
 
-1. **Frontend base:**
-   - `src/main.tsx`, `src/App.tsx`, `src/index.css` (CSS vars do tema shadcn)
-   - `public/favicon.svg`
-   - `src/lib/supabase.ts` (client), `src/lib/utils.ts` (cn), `src/lib/format.ts` (BRL, datas, CNPJ)
-   - `src/types/database.ts` (tipos TS espelhando o schema)
-2. **Auth & contexto:**
-   - `src/contexts/AuthContext.tsx` (sessão Supabase)
-   - `src/contexts/OrgContext.tsx` (org/empresa selecionada)
-   - Páginas `src/pages/auth/Login.tsx` e `Signup.tsx`
-   - Onboarding: criar organização na primeira vez
-3. **Componentes UI** (shadcn-style em `src/components/ui/`): Button, Input, Card, Dialog, Select, Table, Badge, etc.
-4. **Layout:** Sidebar + Topbar com seletor de empresa (`src/components/layout/`)
-5. **Páginas/módulos:** Dashboard, Empresas, Plano de Contas, Centros de Custo, Contatos, Contas Bancárias, Lançamentos (com recorrência + anexos), Fluxo de Caixa, DRE
-6. **Storage:** criar bucket `attachments` no Supabase + políticas de acesso (SQL/instruções)
-7. **Build/typecheck** e primeiro deploy no Netlify
+1. ✅ **Frontend base:** `main.tsx`, `App.tsx` (rotas + guards), `index.css` (tema), `favicon.svg`, `lib/supabase.ts`, `lib/utils.ts`, `lib/format.ts` (BRL/datas/CNPJ), `lib/recurrence.ts`, `types/database.ts`, `vite-env.d.ts`
+2. ✅ **Auth & contexto:** `AuthContext`, `OrgContext`, páginas Login/Signup/Onboarding
+3. ✅ **Componentes UI** (`components/ui/`): button, input, textarea, select, label, card, badge, table, dialog, spinner
+4. ✅ **Layout:** `AppLayout` (sidebar + topbar), `CompanySwitcher`, `PageHeader`, `RequireCompany`, `nav.ts`
+5. ✅ **Módulos:** Dashboard, Empresas, Plano de Contas (+plano padrão), Contatos, Contas Bancárias, Lançamentos (CRUD + filtros + marcar pago + anexos), Recorrências (+geração de lançamentos), Fluxo de Caixa (caixa/competência), DRE
+6. ✅ **Storage:** `0002_storage.sql` cria bucket `attachments` + políticas RLS
+7. ✅ **Anexos:** `AttachmentsManager` (upload/download/excluir via Storage)
+
+### Pendências / próximos passos
+- Configurar Supabase (rodar migrações) e Netlify (env vars) — ver `README.md`
+- Deduplicar `npm` chunk grande (code-splitting) — opcional
+- **Centros de Custo**: tabela e uso no lançamento existem; falta tela de CRUD dedicada (hoje só via banco)
+- Exportação de relatórios para Excel/PDF (pedido da cliente) — pendente
+- Iniciar **Fase 2** (conciliação bancária: import OFX/CSV/PDF)
 
 ### Configuração de infra pendente (cliente já tem as contas)
 - Rodar a migração `0001_init.sql` no Supabase (SQL Editor ou CLI)
