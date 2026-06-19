@@ -2,13 +2,16 @@ import * as XLSX from 'xlsx'
 import { FALLBACK_CATEGORY } from './chartTemplate'
 import type { Company } from '@/types/database'
 
+/** Valor cru de uma célula: número, data ou texto. */
+type Cell = string | number | Date | null | undefined
+
 export interface RawExpenseRow {
   pagamento: string
   descricao: string
   status: string
-  valor: string
-  dataDebito: string
-  prazo: string
+  valor: Cell
+  dataDebito: Cell
+  prazo: Cell
   sheet: string
 }
 
@@ -28,16 +31,55 @@ export interface ParsedRow {
 
 // --------- Conversões ----------
 
-/** "R$ 1.234,56" -> 1234.56 */
+/**
+ * Converte texto monetário em número, robusto a formato BR e US.
+ * Ex.: "R$ 1.234,56" -> 1234.56 · "1,234.56" -> 1234.56 · "1.000" -> 1000
+ */
 export function parseBRL(input: string): number {
   if (!input) return 0
-  const s = String(input)
-    .replace(/\s/g, '')
-    .replace(/r\$/gi, '')
-    .replace(/\./g, '')
-    .replace(',', '.')
-  const n = Number(s)
-  return Number.isFinite(n) ? n : 0
+  let s = String(input).replace(/\s/g, '').replace(/r\$/gi, '')
+  if (!s) return 0
+  const neg = /^-/.test(s) || /\(.*\)/.test(s)
+  s = s.replace(/[()]/g, '').replace(/[^0-9.,-]/g, '')
+  const hasComma = s.includes(',')
+  const hasDot = s.includes('.')
+  if (hasComma && hasDot) {
+    // O separador que aparece por último é o decimal.
+    if (s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g, '').replace(',', '.')
+    else s = s.replace(/,/g, '')
+  } else if (hasComma) {
+    s = s.replace(',', '.')
+  } else if (hasDot) {
+    // Apenas pontos: decidir se é milhar ("1.000") ou decimal ("597.86").
+    const parts = s.split('.')
+    const last = parts[parts.length - 1]
+    if (parts.length > 2 || last.length === 3) s = s.replace(/\./g, '')
+  }
+  const n = Math.abs(Number(s))
+  return Number.isFinite(n) ? (neg ? -n : n) : 0
+}
+
+/** Converte qualquer célula (número/texto) em valor numérico em reais. */
+export function cellToNumber(v: Cell): number {
+  if (v == null || v === '') return 0
+  if (typeof v === 'number') return v
+  return parseBRL(String(v))
+}
+
+function pad(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
+/** Converte qualquer célula (Date/serial Excel/texto) em data ISO yyyy-MM-dd. */
+export function cellToISODate(v: Cell): string | null {
+  if (v == null || v === '') return null
+  if (v instanceof Date) return `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}`
+  if (typeof v === 'number') {
+    const d = XLSX.SSF.parse_date_code(v)
+    if (d && d.y) return `${d.y}-${pad(d.m)}-${pad(d.d)}`
+    return null
+  }
+  return parseDateBR(String(v))
 }
 
 /** "01/06/2026" -> "2026-06-01" (aceita também datas já ISO) */
@@ -143,18 +185,20 @@ function findColumn(headers: string[], aliases: string[]): number {
 
 /** Lê todas as abas do arquivo e extrai as linhas de despesa. */
 export function readExpenseFile(data: ArrayBuffer): RawExpenseRow[] {
-  const wb = XLSX.read(data, { type: 'array' })
+  // raw:true mantém números como números (sem reformatar a moeda) e, com
+  // cellDates, as datas vêm como Date — evitando erros de locale na conversão.
+  const wb = XLSX.read(data, { type: 'array', cellDates: true })
   const out: RawExpenseRow[] = []
 
   for (const sheetName of wb.SheetNames) {
     const ws = wb.Sheets[sheetName]
-    const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, raw: false, defval: '' })
+    const rows = XLSX.utils.sheet_to_json<Cell[]>(ws, { header: 1, raw: true, defval: '' })
     if (!rows.length) continue
 
     // Encontra a linha de cabeçalho (contém "DESCRIÇÃO" e "VALOR")
     let headerIdx = -1
     for (let i = 0; i < Math.min(rows.length, 15); i++) {
-      const up = rows[i].map((c) => (c || '').toString().toUpperCase())
+      const up = rows[i].map((c) => (c ?? '').toString().toUpperCase())
       if (up.some((c) => c.includes('DESCRI')) && up.some((c) => c.includes('VALOR'))) {
         headerIdx = i
         break
@@ -162,7 +206,7 @@ export function readExpenseFile(data: ArrayBuffer): RawExpenseRow[] {
     }
     if (headerIdx === -1) continue
 
-    const headers = rows[headerIdx].map((h) => (h || '').toString())
+    const headers = rows[headerIdx].map((h) => (h ?? '').toString())
     const col = {
       pagamento: findColumn(headers, HEADER_ALIASES.pagamento),
       descricao: findColumn(headers, HEADER_ALIASES.descricao),
@@ -174,17 +218,18 @@ export function readExpenseFile(data: ArrayBuffer): RawExpenseRow[] {
 
     for (let i = headerIdx + 1; i < rows.length; i++) {
       const r = rows[i]
-      const get = (idx: number) => (idx >= 0 ? (r[idx] ?? '').toString().trim() : '')
-      const descricao = get(col.descricao)
-      const valor = get(col.valor)
-      if (!descricao && !valor) continue // linha vazia
+      const text = (idx: number) => (idx >= 0 ? (r[idx] ?? '').toString().trim() : '')
+      const cell = (idx: number): Cell => (idx >= 0 ? r[idx] : '')
+      const descricao = text(col.descricao)
+      const valor = cell(col.valor)
+      if (!descricao && (valor === '' || valor == null)) continue // linha vazia
       out.push({
-        pagamento: get(col.pagamento),
+        pagamento: text(col.pagamento),
         descricao,
-        status: get(col.status),
+        status: text(col.status),
         valor,
-        dataDebito: get(col.dataDebito),
-        prazo: get(col.prazo),
+        dataDebito: cell(col.dataDebito),
+        prazo: cell(col.prazo),
         sheet: sheetName,
       })
     }
@@ -195,14 +240,14 @@ export function readExpenseFile(data: ArrayBuffer): RawExpenseRow[] {
 /** Transforma linhas cruas em linhas revisáveis, com detecção aplicada. */
 export function buildParsedRows(raws: RawExpenseRow[], companies: Company[]): ParsedRow[] {
   return raws.map((raw, i) => {
-    const payment = parseDateBR(raw.dataDebito)
-    const due = parseDateBR(raw.prazo) || payment || ''
+    const payment = cellToISODate(raw.dataDebito)
+    const due = cellToISODate(raw.prazo) || payment || ''
     const isPaid = /CONCLU|PAGO|QUITAD/i.test(raw.status) || !!payment
     return {
       id: `row-${i}`,
       include: true,
       descricao: raw.descricao.toUpperCase(),
-      valor: parseBRL(raw.valor),
+      valor: cellToNumber(raw.valor),
       paymentDate: payment,
       dueDate: due || payment || '',
       status: isPaid ? 'pago' : 'pendente',

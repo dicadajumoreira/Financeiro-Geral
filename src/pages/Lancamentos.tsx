@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Pencil, Paperclip, CheckCircle2, ArrowLeftRight } from 'lucide-react'
+import { Plus, Pencil, Paperclip, CheckCircle2, ArrowLeftRight, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useOrg } from '@/contexts/OrgContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -46,6 +46,8 @@ function Inner({ company }: { company: Company }) {
   const [editing, setEditing] = useState<TxForm | null>(null)
   const [kindFilter, setKindFilter] = useState<'todos' | TransactionKind>('todos')
   const [statusFilter, setStatusFilter] = useState<'todos' | TransactionStatus>('todos')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [confirmBulk, setConfirmBulk] = useState(false)
 
   const baseKey = ['transactions', company.id]
 
@@ -130,6 +132,28 @@ function Inner({ company }: { company: Company }) {
     onSuccess: async () => qc.invalidateQueries({ queryKey: baseKey }),
   })
 
+  const removeOne = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('transactions').delete().eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: async () => qc.invalidateQueries({ queryKey: baseKey }),
+  })
+
+  const removeMany = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (let i = 0; i < ids.length; i += 200) {
+        const { error } = await supabase.from('transactions').delete().in('id', ids.slice(i, i + 200))
+        if (error) throw error
+      }
+    },
+    onSuccess: async () => {
+      setSelected(new Set())
+      setConfirmBulk(false)
+      await qc.invalidateQueries({ queryKey: baseKey })
+    },
+  })
+
   const filtered = useMemo(
     () =>
       (txs ?? []).filter(
@@ -179,6 +203,18 @@ function Inner({ company }: { company: Company }) {
         </div>
       </div>
 
+      {canWrite && selected.size > 0 && (
+        <div className="mb-3 flex items-center gap-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">
+          <span>{selected.size} selecionado(s)</span>
+          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+            Limpar seleção
+          </Button>
+          <Button variant="destructive" size="sm" className="ml-auto" onClick={() => setConfirmBulk(true)}>
+            <Trash2 className="h-4 w-4" /> Excluir selecionados
+          </Button>
+        </div>
+      )}
+
       <Card>
         <CardContent className="p-0">
           {filtered.length === 0 ? (
@@ -190,6 +226,17 @@ function Inner({ company }: { company: Company }) {
             <Table>
               <THead>
                 <TR>
+                  {canWrite && (
+                    <TH className="w-8">
+                      <input
+                        type="checkbox"
+                        checked={filtered.length > 0 && filtered.every((t) => selected.has(t.id))}
+                        onChange={(e) =>
+                          setSelected(e.target.checked ? new Set(filtered.map((t) => t.id)) : new Set())
+                        }
+                      />
+                    </TH>
+                  )}
                   <TH>Vencimento</TH>
                   <TH>Descrição</TH>
                   <TH>Categoria</TH>
@@ -202,6 +249,22 @@ function Inner({ company }: { company: Company }) {
               <TBody>
                 {filtered.map((t) => (
                   <TR key={t.id}>
+                    {canWrite && (
+                      <TD>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(t.id)}
+                          onChange={(e) =>
+                            setSelected((prev) => {
+                              const next = new Set(prev)
+                              if (e.target.checked) next.add(t.id)
+                              else next.delete(t.id)
+                              return next
+                            })
+                          }
+                        />
+                      </TD>
+                    )}
                     <TD className="whitespace-nowrap">{formatDate(t.due_date)}</TD>
                     <TD className="font-medium">{t.description}</TD>
                     <TD className="text-sm text-muted-foreground">{t.chart_of_accounts?.name || '—'}</TD>
@@ -219,9 +282,21 @@ function Inner({ company }: { company: Company }) {
                             <CheckCircle2 className="h-4 w-4 text-success" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="sm" onClick={() => setEditing(t)}>
+                        <Button variant="ghost" size="sm" onClick={() => setEditing(t)} title="Editar">
                           <Pencil className="h-4 w-4" />
                         </Button>
+                        {canWrite && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Excluir"
+                            onClick={() => {
+                              if (confirm(`Excluir o lançamento "${t.description}"?`)) removeOne.mutate(t.id)
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
                       </div>
                     </TD>
                   </TR>
@@ -380,6 +455,29 @@ function Inner({ company }: { company: Company }) {
             </div>
           </div>
         )}
+      </Dialog>
+
+      {/* Confirmação de exclusão em lote */}
+      <Dialog open={confirmBulk} onClose={() => setConfirmBulk(false)} title="Excluir lançamentos">
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Tem certeza que deseja excluir <strong>{selected.size}</strong> lançamento(s)? Esta ação não pode ser desfeita.
+          </p>
+          {removeMany.isError && <p className="text-sm text-destructive">{(removeMany.error as Error).message}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setConfirmBulk(false)}>
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => removeMany.mutate([...selected])}
+              disabled={removeMany.isPending}
+            >
+              {removeMany.isPending ? 'Excluindo…' : `Excluir ${selected.size}`}
+            </Button>
+          </div>
+        </div>
       </Dialog>
     </div>
   )
