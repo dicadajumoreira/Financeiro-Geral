@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { addMonths, format, parseISO } from 'date-fns'
 import { Plus, Pencil, Paperclip, CheckCircle2, ArrowLeftRight, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useOrg } from '@/contexts/OrgContext'
@@ -55,6 +56,17 @@ function Inner({ company }: { company: Company | null }) {
   const [statusFilter, setStatusFilter] = useState<'todos' | TransactionStatus>('todos')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirmBulk, setConfirmBulk] = useState(false)
+  // Parcelamento (apenas para novos lançamentos)
+  const [parcelar, setParcelar] = useState(false)
+  const [parcelas, setParcelas] = useState(2)
+  const [valorTotal, setValorTotal] = useState(true)
+
+  function openNew(kind: TransactionKind = 'despesa') {
+    setParcelar(false)
+    setParcelas(2)
+    setValorTotal(true)
+    setEditing({ kind, status: 'pendente', due_date: todayISO(), competence_date: todayISO() })
+  }
 
   const baseKey = ['transactions', company?.id ?? 'all']
   // Invalida a lista E os relatórios (Dashboard/Fluxo/DRE) a cada mudança.
@@ -128,14 +140,49 @@ function Inner({ company }: { company: Company | null }) {
         const { error } = await supabase.from('transactions').update(payload).eq('id', form.id)
         if (error) throw error
         return form.id
-      } else {
-        const { data, error } = await supabase.from('transactions').insert(payload).select('id').single()
-        if (error) throw error
-        return data.id as string
       }
+
+      // Parcelamento: gera N lançamentos (1 por mês), numerados (i/N).
+      if (parcelar && parcelas > 1) {
+        const n = parcelas
+        const total = form.amount ?? 0
+        const per = valorTotal ? Math.round((total / n) * 100) / 100 : total
+        const firstDue = form.due_date || todayISO()
+        let allocated = 0
+        const rows = Array.from({ length: n }, (_, i) => {
+          const due = format(addMonths(parseISO(firstDue), i), 'yyyy-MM-dd')
+          // Última parcela ajusta o arredondamento (só quando valor é total).
+          let amt = per
+          if (valorTotal && i === n - 1) amt = Math.round((total - allocated) * 100) / 100
+          allocated += per
+          return {
+            ...payload,
+            description: `${payload.description} (${i + 1}/${n})`,
+            amount: amt,
+            competence_date: due,
+            due_date: due,
+            payment_date: null,
+            status: 'pendente' as const,
+            installment_number: i + 1,
+            installment_total: n,
+          }
+        })
+        const { error } = await supabase.from('transactions').insert(rows)
+        if (error) throw error
+        return null
+      }
+
+      const { data, error } = await supabase.from('transactions').insert(payload).select('id').single()
+      if (error) throw error
+      return data.id as string
     },
     onSuccess: async (id) => {
       await invalidateAll()
+      if (id === null) {
+        // Parcelado: fecha o modal (vários lançamentos criados).
+        setEditing(null)
+        return
+      }
       // Mantém o modal aberto com o id (para permitir anexos logo após criar).
       setEditing((prev) => (prev ? { ...prev, id } : prev))
     },
@@ -216,7 +263,7 @@ function Inner({ company }: { company: Company | null }) {
           <span className="text-destructive">Despesas: {formatBRL(totals.despesas)}</span>
           <span className="font-semibold">Saldo: {formatBRL(totals.saldo)}</span>
           {canWrite && company && (
-            <Button onClick={() => setEditing({ kind: 'despesa', status: 'pendente', due_date: todayISO(), competence_date: todayISO() })}>
+            <Button onClick={() => openNew('despesa')}>
               <Plus className="h-4 w-4" /> Novo
             </Button>
           )}
@@ -463,6 +510,44 @@ function Inner({ company }: { company: Company | null }) {
                   <Input value={editing.document_number ?? ''} onChange={(e) => setEditing({ ...editing, document_number: e.target.value })} />
                 </div>
               </div>
+              {/* Parcelamento — somente para novos lançamentos */}
+              {!editing.id && (
+                <div className="rounded-md border border-border p-3">
+                  <label className="flex items-center gap-2 text-sm font-medium">
+                    <input type="checkbox" checked={parcelar} onChange={(e) => setParcelar(e.target.checked)} />
+                    Parcelar este lançamento
+                  </label>
+                  {parcelar && (
+                    <>
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <Label>Nº de parcelas</Label>
+                          <Input
+                            type="number"
+                            min={2}
+                            value={parcelas}
+                            onChange={(e) => setParcelas(Math.max(2, Number(e.target.value) || 2))}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>O valor informado é</Label>
+                          <Select value={valorTotal ? 'total' : 'parcela'} onChange={(e) => setValorTotal(e.target.value === 'total')}>
+                            <option value="total">Valor total (dividir em {parcelas}x)</option>
+                            <option value="parcela">Valor de cada parcela</option>
+                          </Select>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Serão criadas {parcelas} parcelas mensais a partir do vencimento, numeradas (1/{parcelas}…).{' '}
+                        {valorTotal
+                          ? `Cada parcela ≈ ${formatBRL((editing.amount ?? 0) / parcelas)}.`
+                          : `Total ≈ ${formatBRL((editing.amount ?? 0) * parcelas)}.`}
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 <Label>Observações</Label>
                 <Textarea value={editing.notes ?? ''} onChange={(e) => setEditing({ ...editing, notes: e.target.value })} />
@@ -478,7 +563,7 @@ function Inner({ company }: { company: Company | null }) {
                     Fechar
                   </Button>
                   <Button type="submit" disabled={save.isPending}>
-                    {editing.id ? 'Salvar alterações' : 'Criar lançamento'}
+                    {editing.id ? 'Salvar alterações' : parcelar ? `Criar ${parcelas} parcelas` : 'Criar lançamento'}
                   </Button>
                 </div>
               </div>
