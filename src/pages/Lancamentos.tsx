@@ -7,7 +7,6 @@ import { useAuth } from '@/contexts/AuthContext'
 import { formatBRL, formatDate, todayISO } from '@/lib/format'
 import type { BankAccount, ChartAccount, Company, Contact, CostCenter, Transaction, TransactionKind, TransactionStatus } from '@/types/database'
 import { PageHeader } from '@/components/layout/PageHeader'
-import { RequireCompany } from '@/components/layout/RequireCompany'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -29,17 +28,25 @@ const STATUS_META: Record<TransactionStatus, { label: string; variant: 'success'
 }
 
 export default function Lancamentos() {
+  const { currentCompany } = useOrg()
   return (
     <div>
-      <PageHeader title="Lançamentos" description="Receitas e despesas — avulsas ou recorrentes — com anexos." />
-      <RequireCompany>{(company) => <Inner company={company} />}</RequireCompany>
+      <PageHeader
+        title="Lançamentos"
+        description={
+          currentCompany
+            ? 'Receitas e despesas — avulsas ou recorrentes — com anexos.'
+            : 'Visão consolidada de todas as empresas. Selecione uma empresa no topo para criar ou editar lançamentos.'
+        }
+      />
+      <Inner company={currentCompany} />
     </div>
   )
 }
 
 interface TxForm extends Partial<Transaction> {}
 
-function Inner({ company }: { company: Company }) {
+function Inner({ company }: { company: Company | null }) {
   const { org, canWrite } = useOrg()
   const { user } = useAuth()
   const qc = useQueryClient()
@@ -49,50 +56,58 @@ function Inner({ company }: { company: Company }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirmBulk, setConfirmBulk] = useState(false)
 
-  const baseKey = ['transactions', company.id]
+  const baseKey = ['transactions', company?.id ?? 'all']
   // Invalida a lista E os relatórios (Dashboard/Fluxo/DRE) a cada mudança.
   const invalidateAll = async () => {
-    await qc.invalidateQueries({ queryKey: baseKey })
+    await qc.invalidateQueries({ queryKey: ['transactions'] })
     await qc.invalidateQueries({ queryKey: ['tx-report'] })
   }
 
   const { data: txs, isLoading } = useQuery({
     queryKey: baseKey,
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from('transactions')
-        .select('*, contacts(name), chart_of_accounts(name)')
-        .eq('company_id', company.id)
+        .select('*, contacts(name), chart_of_accounts(name), companies(trade_name, legal_name)')
         .order('due_date', { ascending: false })
-        .limit(500)
+        .limit(5000)
+      if (company) q = q.eq('company_id', company.id)
+      const { data, error } = await q
       if (error) throw error
-      return data as (Transaction & { contacts: { name: string } | null; chart_of_accounts: { name: string } | null })[]
+      return data as (Transaction & {
+        contacts: { name: string } | null
+        chart_of_accounts: { name: string } | null
+        companies: { trade_name: string | null; legal_name: string } | null
+      })[]
     },
   })
 
-  // Cadastros auxiliares para os selects.
+  // Cadastros auxiliares para os selects (só quando há empresa selecionada).
   const { data: accounts } = useQuery({
-    queryKey: ['coa', company.id],
-    queryFn: async () => (await supabase.from('chart_of_accounts').select('*').eq('company_id', company.id).eq('is_active', true).order('name')).data as ChartAccount[],
+    queryKey: ['coa', company?.id],
+    queryFn: async () => (await supabase.from('chart_of_accounts').select('*').eq('company_id', company!.id).eq('is_active', true).order('name')).data as ChartAccount[],
+    enabled: !!company,
   })
   const { data: costCenters } = useQuery({
-    queryKey: ['cost_centers', company.id],
-    queryFn: async () => (await supabase.from('cost_centers').select('*').eq('company_id', company.id).order('name')).data as CostCenter[],
+    queryKey: ['cost_centers', company?.id],
+    queryFn: async () => (await supabase.from('cost_centers').select('*').eq('company_id', company!.id).order('name')).data as CostCenter[],
+    enabled: !!company,
   })
   const { data: contacts } = useQuery({
     queryKey: ['contacts', org?.id],
     queryFn: async () => (await supabase.from('contacts').select('*').order('name')).data as Contact[],
   })
   const { data: banks } = useQuery({
-    queryKey: ['bank_accounts', company.id],
-    queryFn: async () => (await supabase.from('bank_accounts').select('*').eq('company_id', company.id).order('name')).data as BankAccount[],
+    queryKey: ['bank_accounts', company?.id],
+    queryFn: async () => (await supabase.from('bank_accounts').select('*').eq('company_id', company!.id).order('name')).data as BankAccount[],
+    enabled: !!company,
   })
 
   const save = useMutation({
     mutationFn: async (form: TxForm) => {
       const payload = {
         org_id: org!.id,
-        company_id: company.id,
+        company_id: company!.id,
         kind: form.kind ?? 'despesa',
         description: form.description!,
         amount: form.amount ?? 0,
@@ -200,13 +215,19 @@ function Inner({ company }: { company: Company }) {
           <span className="text-success">Receitas: {formatBRL(totals.receitas)}</span>
           <span className="text-destructive">Despesas: {formatBRL(totals.despesas)}</span>
           <span className="font-semibold">Saldo: {formatBRL(totals.saldo)}</span>
-          {canWrite && (
+          {canWrite && company && (
             <Button onClick={() => setEditing({ kind: 'despesa', status: 'pendente', due_date: todayISO(), competence_date: todayISO() })}>
               <Plus className="h-4 w-4" /> Novo
             </Button>
           )}
         </div>
       </div>
+
+      {!company && (
+        <div className="mb-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          Visão consolidada (todas as empresas). Para <strong>criar ou editar</strong>, selecione uma empresa no topo. Aqui você pode visualizar e excluir lançamentos de qualquer empresa.
+        </div>
+      )}
 
       {canWrite && selected.size > 0 && (
         <div className="mb-3 flex items-center gap-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">
@@ -243,6 +264,7 @@ function Inner({ company }: { company: Company }) {
                     </TH>
                   )}
                   <TH>Vencimento</TH>
+                  {!company && <TH>Empresa</TH>}
                   <TH>Descrição</TH>
                   <TH>Categoria</TH>
                   <TH>Contato</TH>
@@ -271,6 +293,9 @@ function Inner({ company }: { company: Company }) {
                       </TD>
                     )}
                     <TD className="whitespace-nowrap">{formatDate(t.due_date)}</TD>
+                    {!company && (
+                      <TD className="text-sm text-muted-foreground">{t.companies?.trade_name || t.companies?.legal_name || '—'}</TD>
+                    )}
                     <TD className="font-medium">{t.description}</TD>
                     <TD className="text-sm text-muted-foreground">{t.chart_of_accounts?.name || '—'}</TD>
                     <TD className="text-sm text-muted-foreground">{t.contacts?.name || '—'}</TD>
@@ -287,9 +312,11 @@ function Inner({ company }: { company: Company }) {
                             <CheckCircle2 className="h-4 w-4 text-success" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="sm" onClick={() => setEditing(t)} title="Editar">
-                          <Pencil className="h-4 w-4" />
-                        </Button>
+                        {company && (
+                          <Button variant="ghost" size="sm" onClick={() => setEditing(t)} title="Editar">
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
                         {canWrite && (
                           <Button
                             variant="ghost"

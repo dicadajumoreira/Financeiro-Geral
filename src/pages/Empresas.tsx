@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Pencil, Building2, Trash2 } from 'lucide-react'
+import { Plus, Pencil, Building2, Trash2, Search } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useOrg } from '@/contexts/OrgContext'
 import { formatCNPJ } from '@/lib/format'
+import { fetchCNPJ, isCNPJ } from '@/lib/finance/cnpj'
 import type { Company } from '@/types/database'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -13,7 +14,7 @@ import { Select } from '@/components/ui/select'
 import { Dialog } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { PageLoader } from '@/components/ui/spinner'
+import { PageLoader, Spinner } from '@/components/ui/spinner'
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table'
 
 const REGIMES = ['Simples Nacional', 'Lucro Presumido', 'Lucro Real', 'MEI']
@@ -23,8 +24,38 @@ export default function Empresas() {
   const qc = useQueryClient()
   const [editing, setEditing] = useState<Partial<Company> | null>(null)
   const [deleting, setDeleting] = useState<Company | null>(null)
+  const [cnpjLoading, setCnpjLoading] = useState(false)
+  const [cnpjMsg, setCnpjMsg] = useState<string | null>(null)
   // Exclusão (destrutiva, em cascata) restrita a owner/admin.
   const canDelete = role === 'owner' || role === 'admin'
+
+  // Consulta o CNPJ e preenche os demais campos automaticamente.
+  async function lookupCNPJ(doc: string) {
+    if (!isCNPJ(doc) || !editing) return
+    setCnpjLoading(true)
+    setCnpjMsg(null)
+    try {
+      const d = await fetchCNPJ(doc)
+      setEditing((prev) =>
+        prev
+          ? {
+              ...prev,
+              legal_name: prev.legal_name || d.razaoSocial,
+              trade_name: prev.trade_name || d.nomeFantasia || d.razaoSocial,
+              email: prev.email || d.email,
+              phone: prev.phone || d.telefone,
+              tax_regime: prev.tax_regime || d.taxRegime || '',
+              address: d.address,
+            }
+          : prev,
+      )
+      setCnpjMsg('Dados preenchidos pela Receita ✓')
+    } catch (e) {
+      setCnpjMsg((e as Error).message)
+    } finally {
+      setCnpjLoading(false)
+    }
+  }
 
   const { data: companies, isLoading } = useQuery({
     queryKey: ['companies', org?.id],
@@ -51,6 +82,7 @@ export default function Empresas() {
         tax_regime: form.tax_regime || null,
         email: form.email || null,
         phone: form.phone || null,
+        address: form.address ?? null,
         is_active: form.is_active ?? true,
       }
       if (form.id) {
@@ -182,11 +214,25 @@ export default function Empresas() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>CNPJ</Label>
-                <Input
-                  value={editing.cnpj ?? ''}
-                  onChange={(e) => setEditing({ ...editing, cnpj: e.target.value })}
-                  placeholder="00.000.000/0000-00"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    value={editing.cnpj ?? ''}
+                    onChange={(e) => setEditing({ ...editing, cnpj: e.target.value })}
+                    onBlur={(e) => lookupCNPJ(e.target.value)}
+                    placeholder="00.000.000/0000-00"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="Buscar dados pelo CNPJ"
+                    onClick={() => lookupCNPJ(editing.cnpj ?? '')}
+                    disabled={cnpjLoading || !isCNPJ(editing.cnpj ?? '')}
+                  >
+                    {cnpjLoading ? <Spinner className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+                  </Button>
+                </div>
+                {cnpjMsg && <p className="text-xs text-muted-foreground">{cnpjMsg}</p>}
               </div>
               <div className="space-y-1.5">
                 <Label>Regime tributário</Label>
