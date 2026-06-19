@@ -21,3 +21,6 @@ pnpm-debug.log*
 # Build info
 *.tsbuildinfo
 .netlify
+
+# Artefatos de build manuais
+*.zip

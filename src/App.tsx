@@ -1,22 +1,28 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrg } from '@/contexts/OrgContext'
 import { PageLoader } from '@/components/ui/spinner'
 import { AppLayout } from '@/components/layout/AppLayout'
-import Login from '@/pages/auth/Login'
-import Signup from '@/pages/auth/Signup'
-import Onboarding from '@/pages/Onboarding'
-import Dashboard from '@/pages/Dashboard'
-import Empresas from '@/pages/Empresas'
-import PlanoDeContas from '@/pages/PlanoDeContas'
-import Contatos from '@/pages/Contatos'
-import ContasBancarias from '@/pages/ContasBancarias'
-import Lancamentos from '@/pages/Lancamentos'
-import Recorrencias from '@/pages/Recorrencias'
-import FluxoDeCaixa from '@/pages/FluxoDeCaixa'
-import Dre from '@/pages/Dre'
-import Configuracoes from '@/pages/Configuracoes'
-import EmBreve from '@/pages/EmBreve'
+
+// Páginas de autenticação: carregadas sob demanda
+const Login = lazy(() => import('@/pages/auth/Login'))
+const Signup = lazy(() => import('@/pages/auth/Signup'))
+const Onboarding = lazy(() => import('@/pages/Onboarding'))
+
+// Módulos internos: code-splitting por rota
+const Dashboard = lazy(() => import('@/pages/Dashboard'))
+const Empresas = lazy(() => import('@/pages/Empresas'))
+const PlanoDeContas = lazy(() => import('@/pages/PlanoDeContas'))
+const CentrosDeCusto = lazy(() => import('@/pages/CentrosDeCusto'))
+const Contatos = lazy(() => import('@/pages/Contatos'))
+const ContasBancarias = lazy(() => import('@/pages/ContasBancarias'))
+const Lancamentos = lazy(() => import('@/pages/Lancamentos'))
+const Recorrencias = lazy(() => import('@/pages/Recorrencias'))
+const FluxoDeCaixa = lazy(() => import('@/pages/FluxoDeCaixa'))
+const Dre = lazy(() => import('@/pages/Dre'))
+const Configuracoes = lazy(() => import('@/pages/Configuracoes'))
+const EmBreve = lazy(() => import('@/pages/EmBreve'))
 
 function ProtectedShell() {
   const { loading: authLoading, session } = useAuth()
@@ -33,27 +39,30 @@ export default function App() {
   if (loading) return <PageLoader />
 
   return (
-    <Routes>
-      <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
-      <Route path="/signup" element={session ? <Navigate to="/" replace /> : <Signup />} />
-      <Route path="/onboarding" element={session ? <Onboarding /> : <Navigate to="/login" replace />} />
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
+        <Route path="/signup" element={session ? <Navigate to="/" replace /> : <Signup />} />
+        <Route path="/onboarding" element={session ? <Onboarding /> : <Navigate to="/login" replace />} />
 
-      <Route element={<ProtectedShell />}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/lancamentos" element={<Lancamentos />} />
-        <Route path="/recorrencias" element={<Recorrencias />} />
-        <Route path="/fluxo-de-caixa" element={<FluxoDeCaixa />} />
-        <Route path="/dre" element={<Dre />} />
-        <Route path="/empresas" element={<Empresas />} />
-        <Route path="/plano-de-contas" element={<PlanoDeContas />} />
-        <Route path="/contatos" element={<Contatos />} />
-        <Route path="/contas-bancarias" element={<ContasBancarias />} />
-        <Route path="/configuracoes" element={<Configuracoes />} />
-        <Route path="/conciliacao" element={<EmBreve titulo="Conciliação Bancária" fase="Fase 2" />} />
-        <Route path="/funcionarios" element={<EmBreve titulo="Funcionários & Encargos" fase="Fase 3" />} />
-        <Route path="/crm" element={<EmBreve titulo="CRM Comercial" fase="Fase 4" />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
+        <Route element={<ProtectedShell />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/lancamentos" element={<Lancamentos />} />
+          <Route path="/recorrencias" element={<Recorrencias />} />
+          <Route path="/fluxo-de-caixa" element={<FluxoDeCaixa />} />
+          <Route path="/dre" element={<Dre />} />
+          <Route path="/empresas" element={<Empresas />} />
+          <Route path="/plano-de-contas" element={<PlanoDeContas />} />
+          <Route path="/centros-de-custo" element={<CentrosDeCusto />} />
+          <Route path="/contatos" element={<Contatos />} />
+          <Route path="/contas-bancarias" element={<ContasBancarias />} />
+          <Route path="/configuracoes" element={<Configuracoes />} />
+          <Route path="/conciliacao" element={<EmBreve titulo="Conciliação Bancária" fase="Fase 2" />} />
+          <Route path="/funcionarios" element={<EmBreve titulo="Funcionários & Encargos" fase="Fase 3" />} />
+          <Route path="/crm" element={<EmBreve titulo="CRM Comercial" fase="Fase 4" />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </Suspense>
   )
 }

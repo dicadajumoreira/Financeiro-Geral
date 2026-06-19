@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   Building2,
+  Building,
   ArrowLeftRight,
   Repeat,
   ListTree,
@@ -45,6 +46,7 @@ export const navSections: NavSection[] = [
     items: [
       { label: 'Empresas', to: '/empresas', icon: Building2 },
       { label: 'Plano de Contas', to: '/plano-de-contas', icon: ListTree },
+      { label: 'Centros de Custo', to: '/centros-de-custo', icon: Building },
       { label: 'Contatos', to: '/contatos', icon: Users },
       { label: 'Contas Bancárias', to: '/contas-bancarias', icon: Landmark },
     ],
