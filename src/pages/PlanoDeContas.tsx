@@ -4,6 +4,7 @@ import { Plus, Pencil, ListTree, Sparkles } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useOrg } from '@/contexts/OrgContext'
 import type { AccountType, ChartAccount, Company } from '@/types/database'
+import { CHART_TEMPLATE } from '@/lib/finance/chartTemplate'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { RequireCompany } from '@/components/layout/RequireCompany'
 import { Button } from '@/components/ui/button'
@@ -16,19 +17,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { PageLoader } from '@/components/ui/spinner'
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table'
 
-// Plano de contas padrão sugerido (gerencial), aplicável por empresa.
-const DEFAULT_ACCOUNTS: { name: string; type: AccountType; dre_group: string }[] = [
-  { name: 'Receita de Vendas/Serviços', type: 'receita', dre_group: 'Receita Bruta' },
-  { name: 'Outras Receitas', type: 'receita', dre_group: 'Receita Bruta' },
-  { name: 'Impostos sobre Vendas', type: 'despesa', dre_group: 'Deduções' },
-  { name: 'Custos de Produtos/Serviços', type: 'despesa', dre_group: 'Custos' },
-  { name: 'Salários e Encargos', type: 'despesa', dre_group: 'Despesas com Pessoal' },
-  { name: 'Aluguel', type: 'despesa', dre_group: 'Despesas Operacionais' },
-  { name: 'Energia, Água e Internet', type: 'despesa', dre_group: 'Despesas Operacionais' },
-  { name: 'Marketing e Publicidade', type: 'despesa', dre_group: 'Despesas Operacionais' },
-  { name: 'Despesas Administrativas', type: 'despesa', dre_group: 'Despesas Operacionais' },
-  { name: 'Despesas Financeiras', type: 'despesa', dre_group: 'Despesas Financeiras' },
-]
+// Plano de contas padrão (categorias reais da operação) — ver chartTemplate.
+const DEFAULT_ACCOUNTS = CHART_TEMPLATE
 
 export default function PlanoDeContas() {
   return (

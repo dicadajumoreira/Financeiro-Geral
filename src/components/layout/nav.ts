@@ -4,6 +4,7 @@ import {
   Building,
   ArrowLeftRight,
   Repeat,
+  Upload,
   ListTree,
   Users,
   Landmark,
@@ -35,6 +36,7 @@ export const navSections: NavSection[] = [
     title: 'Financeiro',
     items: [
       { label: 'Lançamentos', to: '/lancamentos', icon: ArrowLeftRight },
+      { label: 'Importar planilha', to: '/importar', icon: Upload },
       { label: 'Recorrências', to: '/recorrencias', icon: Repeat },
       { label: 'Fluxo de Caixa', to: '/fluxo-de-caixa', icon: TrendingUp },
       { label: 'DRE', to: '/dre', icon: FileBarChart },

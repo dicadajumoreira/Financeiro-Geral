@@ -18,6 +18,7 @@ export default defineConfig({
         manualChunks: {
           react: ['react', 'react-dom', 'react-router-dom'],
           charts: ['recharts'],
+          xlsx: ['xlsx'],
           supabase: ['@supabase/supabase-js'],
           query: ['@tanstack/react-query'],
         },

@@ -18,6 +18,7 @@ const CentrosDeCusto = lazy(() => import('@/pages/CentrosDeCusto'))
 const Contatos = lazy(() => import('@/pages/Contatos'))
 const ContasBancarias = lazy(() => import('@/pages/ContasBancarias'))
 const Lancamentos = lazy(() => import('@/pages/Lancamentos'))
+const Importar = lazy(() => import('@/pages/Importar'))
 const Recorrencias = lazy(() => import('@/pages/Recorrencias'))
 const FluxoDeCaixa = lazy(() => import('@/pages/FluxoDeCaixa'))
 const Dre = lazy(() => import('@/pages/Dre'))
@@ -48,6 +49,7 @@ export default function App() {
         <Route element={<ProtectedShell />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/lancamentos" element={<Lancamentos />} />
+          <Route path="/importar" element={<Importar />} />
           <Route path="/recorrencias" element={<Recorrencias />} />
           <Route path="/fluxo-de-caixa" element={<FluxoDeCaixa />} />
           <Route path="/dre" element={<Dre />} />
