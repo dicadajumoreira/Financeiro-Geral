@@ -397,14 +397,24 @@ function Inner({ company }: { company: Company | null }) {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Contato (cliente/fornecedor)</Label>
-                  <Select value={editing.contact_id ?? ''} onChange={(e) => setEditing({ ...editing, contact_id: e.target.value })}>
-                    <option value="">—</option>
-                    {(contacts ?? []).map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
+                  <Label>{(editing.kind ?? 'despesa') === 'receita' ? 'Cliente *' : 'Fornecedor *'}</Label>
+                  <Select
+                    value={editing.contact_id ?? ''}
+                    onChange={(e) => setEditing({ ...editing, contact_id: e.target.value })}
+                    required
+                  >
+                    <option value="">— selecione —</option>
+                    {(contacts ?? [])
+                      .filter((c) =>
+                        (editing.kind ?? 'despesa') === 'receita'
+                          ? c.type === 'cliente' || c.type === 'ambos'
+                          : c.type === 'fornecedor' || c.type === 'ambos',
+                      )
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
                   </Select>
                 </div>
                 <div className="space-y-1.5">

@@ -16,6 +16,7 @@ const Empresas = lazy(() => import('@/pages/Empresas'))
 const PlanoDeContas = lazy(() => import('@/pages/PlanoDeContas'))
 const CentrosDeCusto = lazy(() => import('@/pages/CentrosDeCusto'))
 const Contatos = lazy(() => import('@/pages/Contatos'))
+const ImportarFavorecidos = lazy(() => import('@/pages/ImportarFavorecidos'))
 const ContasBancarias = lazy(() => import('@/pages/ContasBancarias'))
 const Lancamentos = lazy(() => import('@/pages/Lancamentos'))
 const Importar = lazy(() => import('@/pages/Importar'))
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="/plano-de-contas" element={<PlanoDeContas />} />
           <Route path="/centros-de-custo" element={<CentrosDeCusto />} />
           <Route path="/contatos" element={<Contatos />} />
+          <Route path="/importar-favorecidos" element={<ImportarFavorecidos />} />
           <Route path="/contas-bancarias" element={<ContasBancarias />} />
           <Route path="/configuracoes" element={<Configuracoes />} />
           <Route path="/conciliacao" element={<EmBreve titulo="Conciliação Bancária" fase="Fase 2" />} />
