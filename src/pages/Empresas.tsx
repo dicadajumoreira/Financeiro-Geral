@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Pencil, Building2 } from 'lucide-react'
+import { Plus, Pencil, Building2, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useOrg } from '@/contexts/OrgContext'
 import { formatCNPJ } from '@/lib/format'
@@ -19,9 +19,12 @@ import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table'
 const REGIMES = ['Simples Nacional', 'Lucro Presumido', 'Lucro Real', 'MEI']
 
 export default function Empresas() {
-  const { org, canWrite, refresh } = useOrg()
+  const { org, role, canWrite, currentCompany, setCurrentCompany, refresh } = useOrg()
   const qc = useQueryClient()
   const [editing, setEditing] = useState<Partial<Company> | null>(null)
+  const [deleting, setDeleting] = useState<Company | null>(null)
+  // Exclusão (destrutiva, em cascata) restrita a owner/admin.
+  const canDelete = role === 'owner' || role === 'admin'
 
   const { data: companies, isLoading } = useQuery({
     queryKey: ['companies', org?.id],
@@ -60,6 +63,20 @@ export default function Empresas() {
     },
     onSuccess: async () => {
       setEditing(null)
+      await qc.invalidateQueries({ queryKey: ['companies'] })
+      await refresh()
+    },
+  })
+
+  const remove = useMutation({
+    mutationFn: async (company: Company) => {
+      // O ON DELETE CASCADE remove lançamentos, plano de contas, contas, etc.
+      const { error } = await supabase.from('companies').delete().eq('id', company.id)
+      if (error) throw error
+    },
+    onSuccess: async (_data, company) => {
+      if (currentCompany?.id === company.id) setCurrentCompany(null)
+      setDeleting(null)
       await qc.invalidateQueries({ queryKey: ['companies'] })
       await refresh()
     },
@@ -111,11 +128,18 @@ export default function Empresas() {
                       )}
                     </TD>
                     <TD className="text-right">
-                      {canWrite && (
-                        <Button variant="ghost" size="sm" onClick={() => setEditing(c)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                      )}
+                      <div className="flex justify-end gap-1">
+                        {canWrite && (
+                          <Button variant="ghost" size="sm" onClick={() => setEditing(c)} title="Editar">
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button variant="ghost" size="sm" onClick={() => setDeleting(c)} title="Excluir">
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
                     </TD>
                   </TR>
                 ))}
@@ -214,6 +238,33 @@ export default function Empresas() {
               </Button>
             </div>
           </form>
+        )}
+      </Dialog>
+
+      {/* Confirmação de exclusão (destrutiva, em cascata) */}
+      <Dialog open={!!deleting} onClose={() => setDeleting(null)} title="Excluir empresa">
+        {deleting && (
+          <div className="space-y-4">
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+              <p className="font-medium text-destructive">Esta ação é permanente e não pode ser desfeita.</p>
+              <p className="mt-1 text-muted-foreground">
+                Excluir <strong>{deleting.trade_name || deleting.legal_name}</strong> remove também, em cascata,
+                <strong> todos os lançamentos, plano de contas, centros de custo, contas bancárias, recorrências e anexos</strong> desta empresa.
+              </p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Se quiser apenas parar de usá-la, considere marcá-la como <strong>inativa</strong> em vez de excluir.
+            </p>
+            {remove.isError && <p className="text-sm text-destructive">{(remove.error as Error).message}</p>}
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="outline" onClick={() => setDeleting(null)}>
+                Cancelar
+              </Button>
+              <Button type="button" variant="destructive" onClick={() => remove.mutate(deleting)} disabled={remove.isPending}>
+                {remove.isPending ? 'Excluindo…' : 'Excluir definitivamente'}
+              </Button>
+            </div>
+          </div>
         )}
       </Dialog>
     </div>
