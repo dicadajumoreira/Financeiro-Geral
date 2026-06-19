@@ -21,6 +21,7 @@ const STORAGE_KEY = 'fg.currentCompanyId'
 
 export function OrgProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
+  const userId = user?.id ?? null
   const [loading, setLoading] = useState(true)
   const [org, setOrg] = useState<Organization | null>(null)
   const [role, setRole] = useState<MembershipRole | null>(null)
@@ -34,14 +35,15 @@ export function OrgProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refresh = useCallback(async () => {
-    if (!user) {
+    if (!userId) {
       setOrg(null)
       setRole(null)
       setCompanies([])
       setLoading(false)
       return
     }
-    setLoading(true)
+    // Não usamos setLoading(true) aqui: recarregamentos em segundo plano
+    // (ex.: ao voltar para a aba) não devem desmontar a tela e fechar modais.
 
     // Pega a primeira organização do usuário (MVP: 1 org por usuário típico).
     const { data: memberships } = await supabase
@@ -83,7 +85,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     setCurrentCompanyState(saved)
 
     setLoading(false)
-  }, [user])
+  }, [userId])
 
   useEffect(() => {
     void refresh()
