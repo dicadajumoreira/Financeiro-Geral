@@ -26,12 +26,14 @@ export default function Empresas() {
   const { data: companies, isLoading } = useQuery({
     queryKey: ['companies', org?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('companies')
-        .select('*')
-        .order('legal_name')
+      const { data, error } = await supabase.from('companies').select('*')
       if (error) throw error
-      return data as Company[]
+      // Ordem alfabética sempre pelo nome exibido (fantasia ou razão social).
+      return (data as Company[]).sort((a, b) =>
+        (a.trade_name || a.legal_name).localeCompare(b.trade_name || b.legal_name, 'pt-BR', {
+          sensitivity: 'base',
+        }),
+      )
     },
     enabled: !!org,
   })

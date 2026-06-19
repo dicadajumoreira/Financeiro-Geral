@@ -76,7 +76,11 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       .eq('org_id', membership.org_id)
       .order('legal_name', { ascending: true })
 
-    const list = (comps ?? []) as Company[]
+    const list = ((comps ?? []) as Company[]).sort((a, b) =>
+      (a.trade_name || a.legal_name).localeCompare(b.trade_name || b.legal_name, 'pt-BR', {
+        sensitivity: 'base',
+      }),
+    )
     setCompanies(list)
 
     // Restaura a empresa previamente selecionada, se ainda existir.
