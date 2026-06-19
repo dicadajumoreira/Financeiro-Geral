@@ -14,7 +14,7 @@ import {
   type ParsedRow,
   type RecurrenceCandidate,
 } from '@/lib/finance/importParser'
-import type { ChartAccount, ImportClassification, RecurrenceFrequency } from '@/types/database'
+import type { ChartAccount, Contact, ImportClassification, RecurrenceFrequency } from '@/types/database'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -65,6 +65,17 @@ export default function Importar() {
     enabled: !!org,
   })
 
+  // Fornecedores cadastrados (para detectar/vincular nas despesas).
+  const { data: contacts } = useQuery({
+    queryKey: ['contacts', org?.id],
+    queryFn: async () => (await supabase.from('contacts').select('*').order('name')).data as Contact[],
+    enabled: !!org,
+  })
+  const fornecedores = useMemo(
+    () => (contacts ?? []).filter((c) => c.type === 'fornecedor' || c.type === 'ambos'),
+    [contacts],
+  )
+
   // Classificações aprendidas (memória de importações anteriores).
   const { data: learned } = useQuery({
     queryKey: ['import-classifications', org?.id],
@@ -73,13 +84,18 @@ export default function Importar() {
       try {
         const { data, error } = await supabase
           .from('import_classifications')
-          .select('pattern, company_id, category_name, status')
+          .select('pattern, company_id, contact_id, category_name, status')
         if (error) throw error
         for (const r of (data ?? []) as ImportClassification[]) {
-          map.set(r.pattern, { company_id: r.company_id, category_name: r.category_name, status: r.status })
+          map.set(r.pattern, {
+            company_id: r.company_id,
+            contact_id: r.contact_id ?? null,
+            category_name: r.category_name,
+            status: r.status,
+          })
         }
       } catch {
-        // Tabela ainda não criada (migração 0003 pendente): segue sem memória.
+        // Tabela ainda não criada (migração 0003/0004 pendente): segue sem memória.
       }
       return map
     },
@@ -113,7 +129,7 @@ export default function Importar() {
         setError('Não encontrei linhas de despesa. Verifique se a planilha tem as colunas Descrição e Valor.')
         return
       }
-      const parsed = buildParsedRows(raws, companies, learned)
+      const parsed = buildParsedRows(raws, companies, learned, contacts ?? [])
       setRows(parsed)
       setFileName(file.name)
       // Pergunta o mês: por padrão seleciona todos os meses encontrados.
@@ -164,6 +180,7 @@ export default function Importar() {
           description: r.descricao,
           amount: r.valor,
           account_id: resolveAccountId(r.companyId, r.categoryName),
+          contact_id: r.contactId,
           competence_date: baseDate,
           due_date: baseDate,
           payment_date: r.status === 'pago' ? r.paymentDate : null,
@@ -185,6 +202,7 @@ export default function Importar() {
             org_id: org!.id,
             pattern: r.pattern,
             company_id: r.companyId,
+            contact_id: r.contactId,
             category_name: r.categoryName,
             status: r.status,
           })
@@ -405,6 +423,7 @@ export default function Importar() {
                     <TH className="text-right">Valor</TH>
                     <TH>Data</TH>
                     <TH>Empresa</TH>
+                    <TH>Fornecedor</TH>
                     <TH>Categoria</TH>
                     <TH>Status</TH>
                     <TH className="w-8"></TH>
@@ -432,6 +451,18 @@ export default function Importar() {
                             <option value="">— escolher —</option>
                             {companies.map((c) => (
                               <option key={c.id} value={c.id}>{c.trade_name || c.legal_name}</option>
+                            ))}
+                          </Select>
+                        </TD>
+                        <TD>
+                          <Select
+                            value={r.contactId ?? ''}
+                            onChange={(e) => updateRow(setRows, r.id, { contactId: e.target.value || null })}
+                            className="h-8 min-w-[150px]"
+                          >
+                            <option value="">— fornecedor —</option>
+                            {fornecedores.map((c) => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
                           </Select>
                         </TD>

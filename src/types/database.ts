@@ -172,6 +172,7 @@ export type ImportClassification = {
   org_id: string
   pattern: string
   company_id: string | null
+  contact_id: string | null
   category_name: string | null
   status: string | null
   hits: number

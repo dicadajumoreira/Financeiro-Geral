@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 import { FALLBACK_CATEGORY } from './chartTemplate'
-import type { Company } from '@/types/database'
+import type { Company, Contact } from '@/types/database'
 
 /** Valor cru de uma célula: número, data ou texto. */
 type Cell = string | number | Date | null | undefined
@@ -25,6 +25,7 @@ export interface ParsedRow {
   dueDate: string
   status: 'pago' | 'pendente'
   companyId: string | null
+  contactId: string | null // fornecedor detectado
   categoryName: string // categoria detectada (por nome)
   monthKey: string // 'YYYY-MM' do lançamento
   pattern: string // descrição normalizada (chave de aprendizado/recorrência)
@@ -34,6 +35,7 @@ export interface ParsedRow {
 /** Classificação aprendida de importações anteriores. */
 export interface LearnedClassification {
   company_id: string | null
+  contact_id: string | null
   category_name: string | null
   status: string | null
 }
@@ -164,6 +166,32 @@ export function detectCompany(pagamento: string, descricao: string, companies: C
     for (const token of companyTokens(c)) {
       if (text.includes(token)) return c.id
     }
+  }
+  return null
+}
+
+/** Tenta achar o fornecedor (contato) na descrição: por documento ou nome. */
+export function detectContact(descricao: string, contacts: Contact[]): string | null {
+  const digits = (descricao || '').replace(/\D/g, '')
+  const text = ` ${(descricao || '')} `
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  for (const c of contacts) {
+    const cdoc = (c.document ?? '').replace(/\D/g, '')
+    if (cdoc.length >= 11 && digits.includes(cdoc)) return c.id
+  }
+  for (const c of contacts) {
+    const tokens = (c.name || '')
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .split(/[^A-Z0-9]+/)
+      .filter((t) => t.length >= 4 && !STOPWORDS.has(t))
+    // Casa se um nome composto (2+ tokens) aparecer, ou um token bem específico.
+    const matched = tokens.filter((t) => text.includes(` ${t} `) || text.includes(`${t} `) || text.includes(` ${t}`))
+    if (tokens.length >= 2 && matched.length >= 2) return c.id
+    if (tokens.length === 1 && matched.length === 1 && tokens[0].length >= 6) return c.id
   }
   return null
 }
@@ -326,6 +354,7 @@ export function buildParsedRows(
   raws: RawExpenseRow[],
   companies: Company[],
   learned?: Map<string, LearnedClassification>,
+  contacts: Contact[] = [],
 ): ParsedRow[] {
   return raws.map((raw, i) => {
     const payment = cellToISODate(raw.dataDebito)
@@ -337,12 +366,14 @@ export function buildParsedRows(
     // Detecção automática (heurística)
     let companyId = detectCompany(raw.pagamento, raw.descricao, companies)
     let categoryName = detectCategory(raw.pagamento, raw.descricao)
+    let contactId = detectContact(raw.descricao, contacts)
     let status: 'pago' | 'pendente' = isPaid ? 'pago' : 'pendente'
 
     // Sobrepõe com o que já foi aprendido para este padrão
     const mem = learned?.get(pattern)
     if (mem) {
       if (mem.company_id && companies.some((c) => c.id === mem.company_id)) companyId = mem.company_id
+      if (mem.contact_id && contacts.some((c) => c.id === mem.contact_id)) contactId = mem.contact_id
       if (mem.category_name) categoryName = mem.category_name
       if (mem.status === 'pago' || mem.status === 'pendente') status = mem.status
     }
@@ -356,6 +387,7 @@ export function buildParsedRows(
       dueDate: due || payment || '',
       status,
       companyId,
+      contactId,
       categoryName,
       monthKey,
       pattern,
