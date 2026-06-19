@@ -121,6 +121,7 @@ function Inner({ company }: { company: Company }) {
     onSuccess: async (count) => {
       setMsg(count ? `${count} lançamento(s) gerado(s).` : 'Nenhum lançamento novo a gerar.')
       await qc.invalidateQueries({ queryKey: ['transactions', company.id] })
+      await qc.invalidateQueries({ queryKey: ['tx-report'] })
       setTimeout(() => setMsg(null), 4000)
     },
   })

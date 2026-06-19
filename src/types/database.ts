@@ -167,6 +167,18 @@ export type Attachment = {
   created_at: string
 }
 
+export type ImportClassification = {
+  id: string
+  org_id: string
+  pattern: string
+  company_id: string | null
+  category_name: string | null
+  status: string | null
+  hits: number
+  created_at: string
+  updated_at: string
+}
+
 // Helper genérico para tipar tabelas no client do Supabase.
 // `Relationships: []` é exigido pelo supabase-js para reconhecer a tabela.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -193,6 +205,7 @@ export type Database = {
       recurrences: TableShape<Recurrence, 'id' | 'created_at'>
       transactions: TableShape<Transaction, 'id' | 'created_at' | 'updated_at'>
       attachments: TableShape<Attachment, 'id' | 'created_at'>
+      import_classifications: TableShape<ImportClassification, 'id' | 'created_at' | 'updated_at'>
     }
     Views: Record<string, never>
     Functions: Record<string, never>

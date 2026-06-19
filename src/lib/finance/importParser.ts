@@ -26,7 +26,16 @@ export interface ParsedRow {
   status: 'pago' | 'pendente'
   companyId: string | null
   categoryName: string // categoria detectada (por nome)
+  monthKey: string // 'YYYY-MM' do lançamento
+  pattern: string // descrição normalizada (chave de aprendizado/recorrência)
   raw: RawExpenseRow
+}
+
+/** Classificação aprendida de importações anteriores. */
+export interface LearnedClassification {
+  company_id: string | null
+  category_name: string | null
+  status: string | null
 }
 
 // --------- Conversões ----------
@@ -159,6 +168,78 @@ export function detectCompany(pagamento: string, descricao: string, companies: C
   return null
 }
 
+// --------- Normalização / mês / recorrência ----------
+
+const MONTHS_PT: Record<string, string> = {
+  JANEIRO: '01', FEVEREIRO: '02', MARCO: '03', MARÇO: '03', ABRIL: '04', MAIO: '05',
+  JUNHO: '06', JULHO: '07', AGOSTO: '08', SETEMBRO: '09', OUTUBRO: '10', NOVEMBRO: '11', DEZEMBRO: '12',
+}
+
+/** Remove acentos e ruídos (datas, parcelas, anos) para agrupar despesas iguais. */
+export function normalizeDescription(desc: string): string {
+  return (desc || '')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\d{1,2}\/\d{1,2}\/\d{2,4}/g, ' ')
+    .replace(/\d{1,2}\/\d{2,4}/g, ' ')
+    .replace(/\bPARC(ELA)?\.?\s*\d+\s*(DE|\/)\s*\d+/g, ' ')
+    .replace(/\b(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)[A-Z]*\.?\/?\s*\d{0,4}/g, ' ')
+    .replace(/\b\d{4}\b/g, ' ')
+    .replace(/[^A-Z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Tenta extrair 'YYYY-MM' do nome da aba (ex.: "Junho 2026"). */
+export function monthFromSheet(name: string): string | null {
+  const up = (name || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const year = up.match(/\b(20\d{2})\b/)
+  for (const [mname, mnum] of Object.entries(MONTHS_PT)) {
+    const key = mname.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    if (up.includes(key)) return `${year ? year[1] : new Date().getFullYear()}-${mnum}`
+  }
+  const m = up.match(/\b(0?[1-9]|1[0-2])[\/.-](20\d{2})\b/)
+  if (m) return `${m[2]}-${m[1].padStart(2, '0')}`
+  return null
+}
+
+export interface RecurrenceCandidate {
+  pattern: string
+  companyId: string | null
+  descricao: string
+  valor: number
+  months: string[]
+  categoryName: string
+}
+
+/** Acha despesas que se repetem em 2+ meses (mesma empresa + descrição). */
+export function detectRecurrenceCandidates(rows: ParsedRow[]): RecurrenceCandidate[] {
+  const groups = new Map<string, ParsedRow[]>()
+  for (const r of rows) {
+    if (!r.include || !r.pattern) continue
+    const key = `${r.companyId ?? ''}::${r.pattern}`
+    const list = groups.get(key) ?? []
+    list.push(r)
+    groups.set(key, list)
+  }
+  const out: RecurrenceCandidate[] = []
+  for (const list of groups.values()) {
+    const months = [...new Set(list.map((r) => r.monthKey).filter(Boolean))].sort()
+    if (months.length < 2) continue
+    const last = list[list.length - 1]
+    out.push({
+      pattern: last.pattern,
+      companyId: last.companyId,
+      descricao: last.descricao,
+      valor: last.valor,
+      months,
+      categoryName: last.categoryName,
+    })
+  }
+  return out.sort((a, b) => b.months.length - a.months.length)
+}
+
 // --------- Leitura do arquivo ----------
 
 const HEADER_ALIASES: Record<keyof Omit<RawExpenseRow, 'sheet'>, string[]> = {
@@ -237,12 +318,35 @@ export function readExpenseFile(data: ArrayBuffer): RawExpenseRow[] {
   return out
 }
 
-/** Transforma linhas cruas em linhas revisáveis, com detecção aplicada. */
-export function buildParsedRows(raws: RawExpenseRow[], companies: Company[]): ParsedRow[] {
+/**
+ * Transforma linhas cruas em linhas revisáveis, com detecção aplicada.
+ * `learned` (opcional) reaplica classificações de importações anteriores.
+ */
+export function buildParsedRows(
+  raws: RawExpenseRow[],
+  companies: Company[],
+  learned?: Map<string, LearnedClassification>,
+): ParsedRow[] {
   return raws.map((raw, i) => {
     const payment = cellToISODate(raw.dataDebito)
     const due = cellToISODate(raw.prazo) || payment || ''
     const isPaid = /CONCLU|PAGO|QUITAD/i.test(raw.status) || !!payment
+    const pattern = normalizeDescription(raw.descricao)
+    const monthKey = (due || payment || '').slice(0, 7) || monthFromSheet(raw.sheet) || ''
+
+    // Detecção automática (heurística)
+    let companyId = detectCompany(raw.pagamento, raw.descricao, companies)
+    let categoryName = detectCategory(raw.pagamento, raw.descricao)
+    let status: 'pago' | 'pendente' = isPaid ? 'pago' : 'pendente'
+
+    // Sobrepõe com o que já foi aprendido para este padrão
+    const mem = learned?.get(pattern)
+    if (mem) {
+      if (mem.company_id && companies.some((c) => c.id === mem.company_id)) companyId = mem.company_id
+      if (mem.category_name) categoryName = mem.category_name
+      if (mem.status === 'pago' || mem.status === 'pendente') status = mem.status
+    }
+
     return {
       id: `row-${i}`,
       include: true,
@@ -250,9 +354,11 @@ export function buildParsedRows(raws: RawExpenseRow[], companies: Company[]): Pa
       valor: cellToNumber(raw.valor),
       paymentDate: payment,
       dueDate: due || payment || '',
-      status: isPaid ? 'pago' : 'pendente',
-      companyId: detectCompany(raw.pagamento, raw.descricao, companies),
-      categoryName: detectCategory(raw.pagamento, raw.descricao),
+      status,
+      companyId,
+      categoryName,
+      monthKey,
+      pattern,
       raw,
     }
   })

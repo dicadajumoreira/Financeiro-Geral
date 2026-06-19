@@ -50,6 +50,11 @@ function Inner({ company }: { company: Company }) {
   const [confirmBulk, setConfirmBulk] = useState(false)
 
   const baseKey = ['transactions', company.id]
+  // Invalida a lista E os relatórios (Dashboard/Fluxo/DRE) a cada mudança.
+  const invalidateAll = async () => {
+    await qc.invalidateQueries({ queryKey: baseKey })
+    await qc.invalidateQueries({ queryKey: ['tx-report'] })
+  }
 
   const { data: txs, isLoading } = useQuery({
     queryKey: baseKey,
@@ -115,7 +120,7 @@ function Inner({ company }: { company: Company }) {
       }
     },
     onSuccess: async (id) => {
-      await qc.invalidateQueries({ queryKey: baseKey })
+      await invalidateAll()
       // Mantém o modal aberto com o id (para permitir anexos logo após criar).
       setEditing((prev) => (prev ? { ...prev, id } : prev))
     },
@@ -129,7 +134,7 @@ function Inner({ company }: { company: Company }) {
         .eq('id', tx.id)
       if (error) throw error
     },
-    onSuccess: async () => qc.invalidateQueries({ queryKey: baseKey }),
+    onSuccess: invalidateAll,
   })
 
   const removeOne = useMutation({
@@ -137,7 +142,7 @@ function Inner({ company }: { company: Company }) {
       const { error } = await supabase.from('transactions').delete().eq('id', id)
       if (error) throw error
     },
-    onSuccess: async () => qc.invalidateQueries({ queryKey: baseKey }),
+    onSuccess: invalidateAll,
   })
 
   const removeMany = useMutation({
@@ -150,7 +155,7 @@ function Inner({ company }: { company: Company }) {
     onSuccess: async () => {
       setSelected(new Set())
       setConfirmBulk(false)
-      await qc.invalidateQueries({ queryKey: baseKey })
+      await invalidateAll()
     },
   })
 

@@ -26,5 +26,9 @@ export function useTransactions() {
       })[]
     },
     enabled: !!org,
+    // Relatórios sempre frescos: nunca exibir números desatualizados.
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   })
 }
